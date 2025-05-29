@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:17.4
+    container_name: pg_rag_mail
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: rag_mail_user
+      POSTGRES_PASSWORD: rag_mail_pass
+      POSTGRES_DB: mail_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
