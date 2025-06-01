@@ -52,7 +52,13 @@ RAG-Mail is designed with two independent daemon threads, each responsible for a
 
     This thread queries the database for emails that have not yet been embedded yet. It groups them based on email `thread_id` and constructs a full document representing the chronological flow of all emails in the thread, including attachment content. It then sends the combined document to the RAG-Talk service for chunking and embedding (more on this later). It finally updates the DB to mark all emails of the thread as embedded.
 
-### Chunking and Embedding
+### Chunking
+
+The `RecursiveCharacterTextSplitter` from LangChain is a utility designed to break large text documents into smaller, semantically meaningful chunks based on a hierarchy of configurable separators. By default, it attempts to split on paragraph breaks, then sentences, and finally words or characters, ensuring that chunks are as long as possible without exceeding a specified size. In this project, we use the same utility to divide email threads into chunks suitable for embedding and retrieval.
+
+However, because email threads often include structured markers, quoted replies, or inline attachments, we override the default separators with a custom list tailored to email formatting. This allows us to prioritize splitting along email boundaries, attachment sections, and reply headers, rather than arbitrary sentences or paragraphs. This strategy results in cleaner, self-contained chunks that preserve the context of individual messages within a thread—improving semantic coherence and the quality of downstream retrieval.
+
+### Embedding
 
 We use the `bge-large-en-v1.5` embedding model because it provides high-quality semantic representations while supporting a context window of up to 512 tokens. To stay within this limit and avoid truncation, the combined thread content (including attachments) is split using a chunk size of `1,800` characters—an approximate upper bound for 512 tokens in typical English text. This strategy ensures each chunk maintains coherent meaning while remaining compatible with the model’s constraints. Each chunk is then embedded and stored in the Qdrant vector database through a backend API exposed by the RAG-Talk system.
 
@@ -67,6 +73,20 @@ We use the `bge-large-en-v1.5` embedding model because it provides high-quality 
 | e5-large-v2          | BERT       | 1024        | 512        | ~1,800         |
 | bge-m3               | BERT       | 1024        | 8192       | ~28,500        |
 | nomic-embed-text     | Custom     | 768         | 8192       | ~28,500        |
+
+The `bge-m3` embedding model is part of the latest generation of multilingual BERT-based models, offering a massive context window of up to 8,192 tokens, which translates to approximately 28,500 characters of input. This extended window allows it to embed long email threads in a single pass, reducing the need for chunking and preserving more global context. However it has larger model size, higher memory and compute requirements, and longer inference times, which are less optimal for lightweight or edge deployments.
+
+### Email Thread Size Distribution and Embedding Strategy
+
+Based on an analysis of my email thread corpus, I observed a wide range of content lengths. The median thread length is 1,538 characters, indicating that at least half of the threads are relatively short and can fit within a single chunk. The mean length is 3,236 characters, while the 95th percentile reaches 6,101 characters, and a few outliers exceed 400,000 characters. This distribution highlights that while most threads are compact, a minority can grow substantially longer, especially when containing repeated or verbose content.
+
+<img src="pics/email_thread_length_distribution.png" alt="segment" width="650">
+
+Embedding large threads directly can result in excessive chunking, leading to storage inefficiencies, redundant semantic vectors, and diluted context during retrieval. In these cases, blindly chunking the entire content may not only be computationally expensive but also introduce noise that reduces retrieval quality. To address this, we can use a conditional strategy: if a thread’s `text_block_len` exceeds a predefined threshold, we apply summarization or content filtering prior to embedding. Summarization compresses the key intent and topics of the thread into a compact form that fits within a single embedding-friendly chunk.
+
+If you're working with your own email data, you can use the provided [plot_thread_length_distribution.py](./plot_thread_length_distribution.py) script to extract `text_block_len` values, visualize their distribution, and inform your own decisions around embedding models and chunk sizes.
+
+### Document Metadata
 
 Each embedded document is accompanied by structured metadata, such as `thread_id`, subject, attachment_count, etc. This metadata allows for advanced filtering, faceted search, and ranking during retrieval. It also aids in building analytics or audit trails. For example, you can use a filter query in Qdrant to retrieve all vector embeddings associated with a specific thread by filtering on the `thread_id` metadata field.
 
