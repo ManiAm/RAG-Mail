@@ -17,6 +17,7 @@ from services.email_embedder import create_collection, remove_embed_email_thread
 
 COLLECTION_NAME = "email_threads"
 EMBED_MODEL = "bge-large-en-v1.5"
+CHUNK_SIZE =  1800
 DUMP_TEXT_BLOCK = "emails_dump.txt"
 
 
@@ -88,6 +89,8 @@ def embed_unprocessed_threads():
             print(f"Error: {output}")
             continue
 
+        print(f"[INFO] Embeddeding thread {thread_id}, {len(emails)} email(s)...")
+
         status, output = embed_thread(emails, thread_id)
         if not status:
             print(f"Error: {output}")
@@ -100,8 +103,6 @@ def embed_unprocessed_threads():
                 email.is_embedded = True
 
             session.commit()
-
-            print(f"[INFO] Embedded thread {thread_id}, {len(emails)} emails")
 
         except Exception as e:
             print(f"[ERROR] Failed to embed thread {thread_id}: {e}")
@@ -133,11 +134,9 @@ def embed_thread(emails, thread_id):
         ""
     ]
 
-    chunk_size = 3000
-
     save_thread_to_file(text_block, metadata)
 
-    return embed_email_thread(text_block, COLLECTION_NAME, EMBED_MODEL, metadata, separators, chunk_size)
+    return embed_email_thread(text_block, COLLECTION_NAME, EMBED_MODEL, metadata, separators, CHUNK_SIZE)
 
 
 def get_thread_text(emails):

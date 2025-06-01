@@ -54,7 +54,19 @@ RAG-Mail is designed with two independent daemon threads, each responsible for a
 
 ### Chunking and Embedding
 
-The combined thread content (including attachments) is splitted using a chunk size of 3000, which balances coverage for medium to large email threads and efficiency for embedding with models like `bge-large-en-v1.5` or similar. Each chunk is embedded and stored in Qdrant vector database through a backend API exposed by the RAG-Talk system.
+We use the `bge-large-en-v1.5` embedding model because it provides high-quality semantic representations while supporting a context window of up to 512 tokens. To stay within this limit and avoid truncation, the combined thread content (including attachments) is split using a chunk size of `1,800` characters—an approximate upper bound for 512 tokens in typical English text. This strategy ensures each chunk maintains coherent meaning while remaining compatible with the model’s constraints. Each chunk is then embedded and stored in the Qdrant vector database through a backend API exposed by the RAG-Talk system.
+
+| Model Name           | Model Type | Vector Size | Max Tokens | Max Characters |
+|----------------------|------------|-------------|------------|----------------|
+| all-MiniLM-L6-v2     | MiniLM     | 384         | 512        | ~1,800         |
+| all-MiniLM-L12-v2    | MiniLM     | 384         | 512        | ~1,800         |
+| bge-base-en-v1.5     | BERT       | 768         | 512        | ~1,800         |
+| bge-large-en-v1.5    | BERT       | 1024        | 512        | ~1,800         |
+| mxbai-embed-large    | BERT       | 1024        | 512        | ~1,800         |
+| e5-base-v2           | BERT       | 768         | 512        | ~1,800         |
+| e5-large-v2          | BERT       | 1024        | 512        | ~1,800         |
+| bge-m3               | BERT       | 1024        | 8192       | ~28,500        |
+| nomic-embed-text     | Custom     | 768         | 8192       | ~28,500        |
 
 Each embedded document is accompanied by structured metadata, such as `thread_id`, subject, attachment_count, etc. This metadata allows for advanced filtering, faceted search, and ranking during retrieval. It also aids in building analytics or audit trails. For example, you can use a filter query in Qdrant to retrieve all vector embeddings associated with a specific thread by filtering on the `thread_id` metadata field.
 

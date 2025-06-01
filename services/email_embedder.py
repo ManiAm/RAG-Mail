@@ -17,8 +17,8 @@ def remove_embed_email_thread(collection_name, thread_id):
     return rest_obj.delete_by_filter(collection_name, {"metadata.thread_id": thread_id})
 
 
-def embed_email_thread(text_block, collection_name, embed_model, metadata={}, separators=None, chunk_size=None):
+def embed_email_thread(text_block, collection_name, embed_model, metadata={}, separators=None, chunk_size=None, timeout=5*60):
 
     rest_obj = RAG_TALK_REST_API_Client(url=config.rag_talk_url)
 
-    return rest_obj.embed_email_thread(text_block, collection_name, embed_model, metadata, separators, chunk_size)
+    return rest_obj.embed_email_thread(text_block, collection_name, embed_model, metadata, separators, chunk_size, timeout)

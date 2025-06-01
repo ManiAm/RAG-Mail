@@ -40,7 +40,7 @@ class RAG_TALK_REST_API_Client(REST_API_Client):
         return self.request("POST", url, json=json)
 
 
-    def embed_email_thread(self, text_block, collection_name, embed_model, metadata={}, separators=None, chunk_size=None, timeout=30):
+    def embed_email_thread(self, text_block, collection_name, embed_model, metadata={}, separators=None, chunk_size=None, timeout=10):
 
         url = f"{self.baseurl}/api/v1/rag/paste"
 
