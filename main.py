@@ -1,5 +1,6 @@
 
 import os
+import sys
 import threading
 import time
 import json
@@ -13,11 +14,11 @@ from db.models import Email
 
 from services.email_loader_gmail import Email_loader_Gmail
 from services.email_loader_unix import Email_loader_Unix
-from services.email_embedder import create_collection, remove_embed_email_thread, embed_email_thread
+from services.email_embedder import load_model, create_collection, remove_embed_email_thread, embed_email_thread
 
 EMBED_MODEL = "bge-large-en-v1.5"
 CHUNK_SIZE =  1800
-COLLECTION_NAME = "email_threads"
+COLLECTION_NAME = f"email_threads_{EMBED_MODEL}"
 DUMP_TEXT_BLOCK = "emails_dump.txt"
 
 
@@ -27,6 +28,13 @@ def run_pipeline(source="gmail"):
         os.remove(DUMP_TEXT_BLOCK)
 
     init_db()
+
+    print(f"Loading embedding model: {EMBED_MODEL}...")
+    status, output = load_model([EMBED_MODEL])
+    if not status:
+        print(f"Error: caanot load model: {output}")
+        sys.exit(1)
+
     create_collection(COLLECTION_NAME, EMBED_MODEL)
 
     poll_t = threading.Thread(target=email_polling_worker, args=(source,), daemon=True)

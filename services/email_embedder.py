@@ -3,6 +3,27 @@ import config
 from services.rag_talk_api import RAG_TALK_REST_API_Client
 
 
+def load_model(model_list):
+
+    rest_obj = RAG_TALK_REST_API_Client(url=config.rag_talk_url)
+
+    return rest_obj.load_model(model_list)
+
+
+def unload_model(model_name):
+
+    rest_obj = RAG_TALK_REST_API_Client(url=config.rag_talk_url)
+
+    return rest_obj.unload_model(model_name)
+
+
+def unload_all_models():
+
+    rest_obj = RAG_TALK_REST_API_Client(url=config.rag_talk_url)
+
+    return rest_obj.unload_all_models()
+
+
 def create_collection(collection_name, embed_model):
 
     rest_obj = RAG_TALK_REST_API_Client(url=config.rag_talk_url)

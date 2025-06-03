@@ -26,7 +26,7 @@ Attachments often contain critical context, and including their content improves
 
 ### Attachment Type Detection
 
-Accurate identification of attachment file types is critical for reliably extracting meaningful content and ensuring the correct parsing logic is applied. Rather than relying solely on file extensions—which can be misleading or manipulated—we use a multi-tiered MIME type inference strategy.
+Accurate identification of attachment file types is critical for reliably extracting meaningful content and ensuring the correct parsing logic is applied. Rather than relying solely on file extensions - which can be misleading or manipulated - we use a multi-tiered MIME type inference strategy.
 
 The preferred method for identifying attachment types is the `python-magic` library, which is a Python interface to the `libmagic` file type identification system (used by the Unix `file` command). It inspects the binary signature of the file (also called "magic numbers") to determine the actual MIME type. This is more reliable than using file extensions, especially for renamed or improperly labeled attachments.
 
@@ -56,11 +56,11 @@ RAG-Mail is designed with two independent daemon threads, each responsible for a
 
 The `RecursiveCharacterTextSplitter` from LangChain is a utility designed to break large text documents into smaller, semantically meaningful chunks based on a hierarchy of configurable separators. By default, it attempts to split on paragraph breaks, then sentences, and finally words or characters, ensuring that chunks are as long as possible without exceeding a specified size. In this project, we use the same utility to divide email threads into chunks suitable for embedding and retrieval.
 
-However, because email threads often include structured markers, quoted replies, or inline attachments, we override the default separators with a custom list tailored to email formatting. This allows us to prioritize splitting along email boundaries, attachment sections, and reply headers, rather than arbitrary sentences or paragraphs. This strategy results in cleaner, self-contained chunks that preserve the context of individual messages within a thread—improving semantic coherence and the quality of downstream retrieval.
+However, because email threads often include structured markers, quoted replies, or inline attachments, we override the default separators with a custom list tailored to email formatting. This allows us to prioritize splitting along email boundaries, attachment sections, and reply headers, rather than arbitrary sentences or paragraphs. This strategy results in cleaner, self-contained chunks that preserve the context of individual messages within a thread - improving semantic coherence and the quality of downstream retrieval.
 
 ### Embedding
 
-We use the `bge-large-en-v1.5` embedding model because it provides high-quality semantic representations while supporting a context window of up to 512 tokens. To stay within this limit and avoid truncation, the combined thread content (including attachments) is split using a chunk size of `1,800` characters—an approximate upper bound for 512 tokens in typical English text. This strategy ensures each chunk maintains coherent meaning while remaining compatible with the model’s constraints. Each chunk is then embedded and stored in the Qdrant vector database through a backend API exposed by the RAG-Talk system.
+We use the `bge-large-en-v1.5` embedding model because it provides high-quality semantic representations while supporting a context window of up to 512 tokens. To stay within this limit and avoid truncation, the combined thread content (including attachments) is split using a chunk size of `1,800` characters - an approximate upper bound for 512 tokens in typical English text. This strategy ensures each chunk maintains coherent meaning while remaining compatible with the model’s constraints. Each chunk is then embedded and stored in the Qdrant vector database through a backend API exposed by the RAG-Talk system.
 
 | Model Name           | Model Type | Vector Size | Max Tokens | Max Characters |
 |----------------------|------------|-------------|------------|----------------|

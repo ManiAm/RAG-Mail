@@ -16,6 +16,31 @@ class RAG_TALK_REST_API_Client(REST_API_Client):
         super().__init__(url, api_ver, base, user)
 
 
+    def load_model(self, model_list, timeout=5*60):
+
+        url = f"{self.baseurl}/api/v1/rag/load-model"
+
+        json = {
+            "models": model_list
+        }
+
+        return self.request("POST", url, params=json)
+
+
+    def unload_model(self, model_name):
+
+        url = f"{self.baseurl}/api/v1/rag/unload-model/{model_name}"
+
+        return self.request("DELETE", url)
+
+
+    def unload_all_models(self):
+
+        url = f"{self.baseurl}/api/v1/rag/unload-all-models"
+
+        return self.request("DELETE", url)
+
+
     def create_collection(self, collection_name, embed_model):
 
         url = f"{self.baseurl}/api/v1/rag/create-collection"
@@ -37,7 +62,7 @@ class RAG_TALK_REST_API_Client(REST_API_Client):
             "filter": filter_dict
         }
 
-        return self.request("POST", url, json=json)
+        return self.request("DELETE", url, json=json)
 
 
     def embed_email_thread(self, text_block, collection_name, embed_model, metadata={}, separators=None, chunk_size=None, timeout=10):
