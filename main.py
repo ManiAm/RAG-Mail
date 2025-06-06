@@ -3,51 +3,54 @@ import os
 import sys
 import threading
 import time
-import json
-import re
+import argparse
 
 from datetime import datetime
+from datetime import timezone
 from sqlalchemy import desc
 from db.session import init_db
 from db.session import SessionLocal
 from db.models import Email
 
 from services.email_loader_gmail import Email_loader_Gmail
-from services.email_loader_unix import Email_loader_Unix
-from services.email_embedder import load_model, create_collection, remove_embed_email_thread, embed_email_thread
-
-EMBED_MODEL = "bge-large-en-v1.5"
-CHUNK_SIZE =  1800
-COLLECTION_NAME = f"email_threads_{EMBED_MODEL}"
-DUMP_TEXT_BLOCK = "emails_dump.txt"
+from services.email_loader_mbox import Email_loader_mbox
+from services.email_embedder_remote import load_model, create_collection
+from services.email_embedder_worker import embed_unprocessed_threads
 
 
-def run_pipeline(source="gmail"):
+def run_pipeline(source, mailbox, embed_model, chunk_size, collection_name, dump_text_block):
 
-    if os.path.exists(DUMP_TEXT_BLOCK):
-        os.remove(DUMP_TEXT_BLOCK)
+    if os.path.exists(dump_text_block):
+        os.remove(dump_text_block)
 
     init_db()
 
-    print(f"Loading embedding model: {EMBED_MODEL}...")
-    status, output = load_model([EMBED_MODEL])
+    print(f"Loading embedding model: {embed_model}...")
+    status, output = load_model([embed_model])
     if not status:
         print(f"Error: caanot load model: {output}")
         sys.exit(1)
 
-    create_collection(COLLECTION_NAME, EMBED_MODEL)
+    create_collection(collection_name, embed_model)
 
-    poll_t = threading.Thread(target=email_polling_worker, args=(source,), daemon=True)
-    embed_t = threading.Thread(target=embedding_worker, daemon=True)
+    if source == "gmail":
+        poll_t = threading.Thread(target=email_polling_worker, daemon=True)
+        poll_t.start()
+    elif source == "mbox":
+        poll_t = threading.Thread(target=email_loader_worker, args=(mailbox,), daemon=True)
+        poll_t.start()
+    else:
+        print(f"Error: invalid source {source}")
+        sys.exit(1)
 
-    poll_t.start()
+    embed_t = threading.Thread(target=embedding_worker, args=(collection_name, embed_model, chunk_size, dump_text_block), daemon=True)
     embed_t.start()
 
     poll_t.join()
     embed_t.join()
 
 
-def email_polling_worker(source):
+def email_polling_worker():
 
     while True:
 
@@ -58,158 +61,108 @@ def email_polling_worker(source):
         last_seen = None
         if latest_email and latest_email.date:
             last_seen = latest_email.date
+            if last_seen.tzinfo is None:
+                last_seen = last_seen.replace(tzinfo=timezone.utc)
 
         print(f"[{datetime.now()}] Fetching emails since: {last_seen}")
 
-        if source == "gmail":
-            gmail = Email_loader_Gmail()
-            gmail.load_emails(since=last_seen, max_results=1000)
-        else:
-            unix = Email_loader_Unix()
-            unix.load_emails(since=last_seen)
+        gmail = Email_loader_Gmail()
+        gmail.load_emails(since=last_seen, max_results=1000)
 
         time.sleep(20)
 
 
-def embedding_worker():
+def email_loader_worker(mailbox):
+
+    unix = Email_loader_mbox(mailbox)
+    unix.load_emails()
+
+
+def embedding_worker(collection_name, embed_model, chunk_size, dump_text_block):
 
     while True:
-        embed_unprocessed_threads()
+
+        embed_unprocessed_threads(collection_name,
+                                  embed_model,
+                                  chunk_size,
+                                  dump_text_block)
         time.sleep(10)
 
 
-def embed_unprocessed_threads():
+def parse_arguments():
 
-    session = SessionLocal()
+    parser = argparse.ArgumentParser(
+        description="RAG-Mail: Process and embed emails from a local mailbox file or directly from Gmail."
+    )
 
-    # Get thread_ids where at least one email is not embedded
-    thread_ids = session.query(Email.thread_id).filter(Email.is_embedded == False).distinct().all()
+    parser.add_argument(
+        '--source',
+        choices=['gmail', 'mbox'],
+        default='mbox',
+        help="Specify the email source: 'gmail' for OAuth Gmail access or 'mbox' to load from a local mailbox file."
+    )
 
-    if not thread_ids:
-        print("[INFO] No pending email threads found for embedding.")
-        session.close()
-        return
+    parser.add_argument(
+        '--mailbox',
+        type=str,
+        metavar='PATH',
+        help="Path to the MBOX email file (required if source is 'mbox')."
+    )
 
-    for (thread_id,) in thread_ids:
+    parser.add_argument(
+        '--llm_model',
+        type=str,
+        default='llama3.1:8b',
+        help="Name of the LLM model to use."
+    )
 
-        emails = session.query(Email).filter(Email.thread_id == thread_id).order_by(Email.date).all()
-        if not emails:
-            continue
+    parser.add_argument(
+        '--embed_model',
+        type=str,
+        default='bge-large-en-v1.5',
+        help="Name of the embedding model to use."
+    )
 
-        # Remove old embeddings for this thread
-        status, output = remove_embed_email_thread(COLLECTION_NAME, thread_id)
-        if not status:
-            print(f"Error: {output}")
-            continue
+    parser.add_argument(
+        '--chunk_size',
+        type=int,
+        default=1800,
+        help="Number of characters per chunk when splitting emails."
+    )
 
-        text_block = get_thread_text(emails)
+    parser.add_argument(
+        '--collection_name',
+        type=str,
+        help="Qdrant collection name (defaults to 'email_threads_<embed_model>')."
+    )
 
-        print(f"""[INFO] Embedding thread {thread_id}:
-            Subject           : "{emails[0].subject}"
-            Email Count       : {len(emails)}
-            Attachments Count : {sum(len(e.attachments) for e in emails)}
-            Thread Length     : {len(text_block)}""")
+    parser.add_argument(
+        '--dump_text_block',
+        type=str,
+        default='emails_dump.txt',
+        help="File path to save raw email thread text blocks (default: emails_dump.txt)."
+    )
 
-        status, output = embed_thread(emails, thread_id, text_block)
-        if not status:
-            print(f"Error: {output}")
-            continue
+    args = parser.parse_args()
 
-        try:
+    # mailbox path must be set if source is 'mbox'
+    if args.source == 'mbox' and not args.mailbox:
+        parser.error("--mailbox is required when source is 'mbox'.")
 
-            # Mark all emails in this thread as embedded
-            for email in emails:
-                email.is_embedded = True
+    # default collection name if not provided
+    if not args.collection_name:
+        args.collection_name = f"email_threads_{args.embed_model}"
 
-            session.commit()
-
-        except Exception as e:
-            print(f"[ERROR] Failed to embed thread {thread_id}: {e}")
-
-    session.close()
-
-
-def get_thread_text(emails):
-
-    text_block_list = []
-
-    for i, email in enumerate(emails, 1):
-
-        subject = email.subject.strip() if email.subject else "(no subject)"
-
-        part = (
-            f"--- Email {i} ---\n"
-            f"Date: {email.date}\n"
-            f"Subject: {subject}\n\n"
-            f"{email.body.strip()}"
-        )
-
-        for att in email.attachments:
-            if att.text_content:
-                part += (
-                    f"\n\n--- Begin Attachment: {att.filename} ({att.extension}) ---\n"
-                    f"{att.text_content.strip()}\n"
-                    f"--- End Attachment ---"
-                )
-
-        part += "\n--- End Email ---"
-        text_block_list.append(part)
-
-    text_block = "\n\n".join(text_block_list)
-
-    return remove_links(text_block)
-
-
-def remove_links(text):
-
-    url_pattern = r'https?://\S+|www\.\S+|ftp://\S+'
-    return re.sub(url_pattern, '', text)
-
-
-def embed_thread(emails, thread_id, text_block):
-
-    metadata = {
-        "thread_id"         : thread_id,
-        "subject"           : emails[0].subject,
-        "sender"            : emails[0].sender,
-        "email_count"       : len(emails),
-        "attachments_count" : sum(len(e.attachments) for e in emails),
-        "first_email_date"  : str(min(e.date for e in emails if e.date)),
-        "last_email_date"   : str(max(e.date for e in emails if e.date)),
-        "text_block_len"    : len(text_block)
-    }
-
-    separators = [
-        "\n--- End Email ---",        # Primary: split cleanly at the end of each email
-        "--- Email",                  # Secondary: split at the start of each email (redundant with End, but safe)
-        "\n\n--- Begin Attachment",   # Split before large attachments to isolate them
-        "\n\n",                       # Paragraph boundary (typical in email bodies)
-        "\n",                         # Line break (for denser formatting)
-        " ",
-        ""
-    ]
-
-    status, output = embed_email_thread(text_block, COLLECTION_NAME, EMBED_MODEL, metadata, separators, CHUNK_SIZE)
-    if not status:
-        return False, output
-
-    # record only on successful embedding!
-    save_thread_to_file(text_block, metadata)
-
-    return True, None
-
-
-def save_thread_to_file(text_block, metadata):
-
-    with open(DUMP_TEXT_BLOCK, "a", encoding="utf-8") as f:
-        f.write("=" * 80 + "\n")
-        f.write("METADATA:\n")
-        json.dump(metadata, f, indent=4)
-        f.write("\n\nTEXT BLOCK:\n")
-        f.write(text_block.strip())
-        f.write("\n\n")
+    return args
 
 
 if __name__ == "__main__":
 
-    run_pipeline(source="gmail")  # or "unix"
+    parser = parse_arguments()
+
+    run_pipeline(source=parser.source,
+                 mailbox=parser.mailbox,
+                 embed_model=parser.embed_model,
+                 chunk_size=parser.chunk_size,
+                 collection_name=parser.collection_name,
+                 dump_text_block=parser.dump_text_block)

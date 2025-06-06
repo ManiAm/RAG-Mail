@@ -116,11 +116,13 @@ Start the PostgreSQL Docker container:
 
 Update [config.py](config.py) to reflect URL for the running RAG-Talk.
 
-Google APIs use OAuth 2.0 for user authorization. RAG-Mail should:
+If you're processing emails from a local `.mbox` file, use the following command:
 
-- Authenticate the user
-- Request read-only scopes
-- Get a token representing the user's consent
+    python3 main.py --source mbox --mailbox /path/to/mbox
+
+If you want to fetch emails directly from your Gmail account via OAuth, run:
+
+    python3 main.py --source gmail
 
 Follow steps in [here](#setting-up-gmail-api-oauth-20-credentials) to enable Gmail access and obtain OAuth 2.0 credentials for use with this project. `credentials.json` file contains your OAuth 2.0 Client ID and Client Secret from Google Cloud. On the very first run, no valid token is found, and the project displays the following message:
 
@@ -130,7 +132,24 @@ Open the URL in your browser, choose your Gmail account, and approve the request
 
 <img src="pics/gmail_auth.png" alt="segment" width="350">
 
+## Download Gmail Emails
+
+Use Google takeout to download a copy of your emails.
+
+- Go to https://takeout.google.com
+- Select only "Mail"
+- Export and download the archive
+- The downloaded archive will contain a `.mbox` file for your Gmail.
+
+MBOX is a standard file format used for storing collections of email messages in a single text file. Each email in an MBOX file is appended one after another, typically starting with a `From` line that marks the beginning of a new message. Originally developed for Unix-based systems, MBOX is widely supported by email clients and tools for archiving or transferring emails. It's particularly useful for backing up email inboxes or processing large batches of messages in offline or automated environments.
+
 ## Setting Up Gmail API OAuth 2.0 Credentials
+
+Google APIs use OAuth 2.0 for user authorization. RAG-Mail should:
+
+- Authenticate the user
+- Request read-only scopes
+- Get a token representing the user's consent
 
 Go to Gmail API page, and click Enable.
 
