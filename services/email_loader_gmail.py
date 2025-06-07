@@ -13,6 +13,7 @@ from email.utils import getaddresses
 
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
 
 from db.session import SessionLocal
 from db.models import Email, Attachment
@@ -33,8 +34,21 @@ class Email_loader_Gmail(Email_loader):
         creds = None
 
         if os.path.exists('token.pickle'):
+
             with open('token.pickle', 'rb') as token:
                 creds = pickle.load(token)
+                print("Expired           :", creds.expired)
+                print("Has refresh token :", bool(creds.refresh_token))
+                print("Valid             :", creds.valid)
+
+                # Refresh if possible
+                if creds.expired and creds.refresh_token:
+                    try:
+                        creds.refresh(Request())
+                        print("Token refreshed successfully.")
+                    except Exception as e:
+                        print(f"Failed to refresh token: {e}")
+                        creds = None  # fallback to re-auth
 
         if not creds or not creds.valid:
 
@@ -43,8 +57,17 @@ class Email_loader_Gmail(Email_loader):
                 print("Gmail credential JSON file cannot be accessed!")
                 sys.exit(1)
 
-            flow = InstalledAppFlow.from_client_secrets_file(credential_file, Email_loader_Gmail.SCOPES)
-            creds = flow.run_local_server(port=5008, open_browser=False)
+            flow = InstalledAppFlow.from_client_secrets_file(
+                credential_file,
+                Email_loader_Gmail.SCOPES
+            )
+
+            creds = flow.run_local_server(
+                port=5008,
+                open_browser=False,
+                access_type='offline',
+                include_granted_scopes='true'
+            )
 
             with open('token.pickle', 'wb') as token:
                 pickle.dump(creds, token)
@@ -148,25 +171,29 @@ class Email_loader_Gmail(Email_loader):
             print(f"  Subject: {message_header.get('subject', '')}")
             print(f"  From: {message_header.get('from', '')}")
 
-            msg_info = self.get_email_detail(_id, message_header)
+            msg_info = self.parse_email(_id, message_header)
 
-            thread_id = msg_info["thread_id"]
             message_id = msg_info["message_id"]
-            subject = msg_info["subject"]
+            thread_id = msg_info["thread_id"]
+            references = msg_info["references"]
+            in_reply_to = msg_info["in_reply_to"]
             sender = msg_info["sender"]
             recipients = msg_info["recipients"]
-            body = msg_info["body"]
             date = msg_info["date"]
+            subject = msg_info["subject"]
+            body = msg_info["body"]
             attachments = msg_info["attachments"]
 
             email_obj = Email(
                 id=message_id,
                 thread_id=thread_id,
+                references=references,
+                in_reply_to=in_reply_to,
                 sender=sender,
                 recipients=recipients,
+                date=date or datetime.utcnow(),
                 subject=subject,
-                body=body,
-                date=date or datetime.utcnow()
+                body=body
             )
             session.add(email_obj)
 
@@ -196,7 +223,10 @@ class Email_loader_Gmail(Email_loader):
         session.close()
 
 
-    def get_email_detail(self, _id, message_header):
+    def parse_email(self, _id, message_header):
+
+        references_raw = message_header.get('references', '')
+        references_list = references_raw.split() if references_raw else []
 
         recipients_raw = message_header.get('to', '')
         recipients = [email for _, email in getaddresses([recipients_raw])]
@@ -216,12 +246,14 @@ class Email_loader_Gmail(Email_loader):
         attachments = self.extract_attachments(full)
 
         return {
-            "thread_id": message_header.get('threadId'),
             "message_id": message_header.get('message-id', str(uuid.uuid4())),
-            "subject": message_header.get('subject', ''),
+            "thread_id": message_header.get('threadId'),
+            "references": references_list,
+            "in_reply_to": message_header.get('in-reply-to'),
             "sender": message_header.get('from', ''),
             "recipients": recipients,
             "date": date_obj,
+            "subject": message_header.get('subject', ''),
             "body": body,
             "attachments": attachments
         }
