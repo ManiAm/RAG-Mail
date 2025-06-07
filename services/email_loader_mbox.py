@@ -43,14 +43,14 @@ class Email_loader_mbox(Email_loader):
             if session.query(Email).filter_by(id=message_id).first():
                 continue
 
-            subject = self._safe_decode_header(message.get("Subject", ""))
-            sender = self._safe_decode_header(message.get("From", ""))
+            subject = self._decode_header_value(message.get("Subject", ""))
+            sender = self._decode_header_value(message.get("From", ""))
 
             recipients_raw = message.get_all("To", [])
 
             recipients = []
             for r in recipients_raw:
-                decoded = self._safe_decode_header(r)
+                decoded = self._decode_header_value(r)
                 _, email = parseaddr(decoded)
                 if email:
                     recipients.append(email)
@@ -64,6 +64,11 @@ class Email_loader_mbox(Email_loader):
             print(f"  Subject: {subject}")
             print(f"  From: {sender}")
 
+            references_raw = message.get('References', '')
+            references_list = references_raw.split() if references_raw else []
+
+            in_reply_to = self._decode_header_value(message.get("In-Reply-To", ""))
+
             thread_id = self._build_thread_id(message)
             body = self._get_body(message)
             attachments = self._get_attachments(message)
@@ -71,11 +76,13 @@ class Email_loader_mbox(Email_loader):
             email_obj = Email(
                 id=message_id,
                 thread_id=thread_id,
+                references=references_list,
+                in_reply_to=in_reply_to,
                 sender=sender,
                 recipients=recipients,
+                date=parsed_date or datetime.utcnow(),
                 subject=subject,
-                body=body,
-                date=parsed_date or datetime.utcnow()
+                body=body
             )
 
             session.add(email_obj)
@@ -99,11 +106,11 @@ class Email_loader_mbox(Email_loader):
                 session.commit()
                 batch_counter = 0
 
-        # Final commit for remaining
         if batch_counter > 0:
             session.commit()
 
         session.close()
+        print("\nAll emails are processed!")
 
 
     def _iter_mbox_stream(self):
@@ -128,7 +135,7 @@ class Email_loader_mbox(Email_loader):
                 yield message_from_binary_file(io.BytesIO(buffer))
 
 
-    def _safe_decode_header(self, value: str) -> str:
+    def _decode_header_value(self, value: str) -> str:
 
         try:
             decoded_parts = decode_header(value)
@@ -146,7 +153,7 @@ class Email_loader_mbox(Email_loader):
 
         if references:
             ref_ids = references.split()
-            thread_id = ref_ids[-1]
+            thread_id = ref_ids[0]
         elif in_reply_to:
             thread_id = in_reply_to
         else:
@@ -158,29 +165,56 @@ class Email_loader_mbox(Email_loader):
     def _get_body(self, message) -> str:
         """ Extract plain text body from the email. """
 
-        body = ""
+        plain_text = ""
+        html_text = ""
 
         if message.is_multipart():
 
             for part in message.walk():
 
                 content_type = part.get_content_type()
-                content_disposition = str(part.get("Content-Disposition", ""))
+                content_disposition = str(part.get("Content-Disposition", "")).lower()
 
-                if content_type == "text/plain" and "attachment" not in content_disposition:
-                    try:
-                        body += part.get_payload(decode=True).decode(errors="ignore")
-                    except Exception:
+                if "attachment" in content_disposition:
+                    continue  # Skip attachments
+
+                try:
+                    payload = part.get_payload(decode=True)
+                    if not payload:
                         continue
 
+                    charset = part.get_content_charset() or "utf-8"
+                    text = payload.decode(charset, errors="ignore")
+
+                    if content_type == "text/plain":
+                        plain_text += text
+                    elif content_type == "text/html":
+                        html_text += text
+
+                except Exception:
+                    continue
         else:
 
             try:
-                body = message.get_payload(decode=True).decode(errors="ignore")
+                payload = message.get_payload(decode=True)
+                if payload:
+                    charset = message.get_content_charset() or "utf-8"
+                    text = payload.decode(charset, errors="ignore")
+                    content_type = message.get_content_type()
+                    if content_type == "text/plain":
+                        plain_text = text
+                    elif content_type == "text/html":
+                        html_text = text
             except Exception:
-                body = ""
+                pass
 
-        return body.replace('\x00', '')
+        if html_text:
+
+            status, output = self.html_to_text(html_text)
+            if status and output:
+                plain_text = output
+
+        return plain_text.replace('\x00', '').strip()
 
 
     def _get_attachments(self, message) -> dict:

@@ -5,6 +5,9 @@ import magic
 import json
 import pdfplumber
 import zipfile
+import re
+import pytesseract
+import html2text
 
 from email import message_from_bytes
 from email.policy import default
@@ -12,7 +15,22 @@ from docx import Document
 from io import BytesIO
 from bs4 import BeautifulSoup
 from PIL import Image
-import pytesseract
+
+
+class HTML2TextNoFootnotes(html2text.HTML2Text):
+    def _dump_footnotes(self):
+        return ""  # Suppress [ref]: style footnotes entirely
+
+h = HTML2TextNoFootnotes()
+
+h.ignore_links = True           # Do not include hyperlinks
+h.ignore_images = True          # Skip image tags
+h.body_width = 0                # Do not wrap text
+h.ignore_emphasis = True        # Remove **bold** and _italics_
+h.skip_internal_links = True    # Avoid internal anchors
+h.ignore_tables = True          # Do not include tables
+h.protect_links = True
+
 
 
 class Email_loader():
@@ -177,3 +195,25 @@ class Email_loader():
                             result.append(f"===== {file_name} =====\n[Could not read file: {e}]")
 
         return "\n\n".join(result).strip()
+
+
+    def html_to_text(self, html_text):
+
+        try:
+
+            text = h.handle(html_text)
+
+            # Remove invisible or formatting Unicode characters
+            text = re.sub(r"[\u200c\u200d\u200e\u200f\u202a-\u202e\u2060-\u206f\u00ad\xa0]", " ", text)
+
+            # Replace multiple consecutive spaces or tabs with a single space
+            text = re.sub(r"[ \t]+", " ", text)
+
+            # Normalize newlines (remove lines that are empty or have only whitespace)
+            text = re.sub(r"\n\s*\n+", "\n\n", text)
+
+            return True, text.strip()
+
+        except Exception as E:
+
+            return False, f"Error in parsing html: {str(E)}"

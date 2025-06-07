@@ -10,13 +10,15 @@ class Email(Base):
 
     __tablename__ = "emails"
 
-    id = Column(String, primary_key=True, nullable=False)
+    date = Column(DateTime)
     thread_id = Column(String, index=True)
+    subject = Column(Text, nullable=False)
+    references = Column(ARRAY(Text))
+    in_reply_to = Column(String)
+    body = Column(Text, nullable=False)
+    id = Column(String, primary_key=True, nullable=False)
     sender = Column(String, nullable=False)
     recipients = Column(ARRAY(String), nullable=False)
-    subject = Column(Text, nullable=False)
-    body = Column(Text, nullable=False)
-    date = Column(DateTime)
     is_embedded = Column(Boolean, default=False)
 
     attachments = relationship("Attachment", back_populates="email", cascade="all, delete-orphan")
