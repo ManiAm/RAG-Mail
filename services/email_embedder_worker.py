@@ -1,11 +1,9 @@
 
-import json
 import re
+import json
 import difflib
 
 from services.email_embedder_remote import remove_embed_email_thread, embed_email_thread
-from db.session import SessionLocal
-from db.models import Email
 
 quoted_reply_patterns = [
     r"On .+?wrote:",                    # Gmail-style replies
@@ -18,63 +16,60 @@ quoted_reply_patterns = [
 ]
 
 
-def embed_unprocessed_threads(collection_name, embed_model, chunk_size, dump_text_block):
+def embed_thread_start(emails, thread_id, collection_name, embed_model, chunk_size, dump_text_block):
 
-    session = SessionLocal()
+    # Remove old embeddings for this thread
+    status, output = remove_embed_email_thread(collection_name, thread_id)
+    if not status:
+        return False, f"Error: {output}"
 
-    # Get thread_ids where at least one email is not embedded
-    thread_ids = session.query(Email.thread_id).filter(Email.is_embedded == False).distinct().all()
+    text_block = get_thread_text(emails)
+    if not text_block:
+        return True, None
 
-    if not thread_ids:
-        print("[INFO] No pending email threads found for embedding.")
-        session.close()
-        return
+    print(f"""[INFO] Embedding thread {thread_id}:
+        Subject           : "{emails[0].subject}"
+        Email Count       : {len(emails)}
+        Attachments Count : {sum(len(e.attachments) for e in emails)}
+        Thread Length     : {len(text_block)}""")
 
-    for (thread_id,) in thread_ids:
+    metadata = {
+        "type"              : "email",
+        "thread_id"         : thread_id,
+        "subject"           : emails[0].subject,
+        "sender"            : emails[0].sender,
+        "email_count"       : len(emails),
+        "attachments_count" : sum(len(e.attachments) for e in emails),
+        "first_email_date"  : str(min(e.date for e in emails if e.date)),
+        "last_email_date"   : str(max(e.date for e in emails if e.date)),
+        "text_block_len"    : len(text_block)
+    }
 
-        emails = session.query(Email).filter(Email.thread_id == thread_id).order_by(Email.date).all()
-        if not emails:
-            continue
+    separators = [
+        "===== End Email Thread =====",   # End marker for the entire email thread
+        "===== Begin Email Thread =====", # Start marker for the entire email thread
+        "--- End Email ---",              # End of an individual email within the thread
+        "--- Email",                      # Start of an individual email (used for redundancy)
+        "--- Begin Attachment",           # Start of an attachment section
+        "\n\n",                           # Paragraph boundary (typical in email bodies)
+        "\n",                             # Line break (for denser formatting)
+        " ",                              # Word boundary (used when no larger separator found)
+        ""                                # Character-level fallback (last resort for splitting)
+    ]
 
-        # Remove old embeddings for this thread
-        status, output = remove_embed_email_thread(collection_name, thread_id)
-        if not status:
-            print(f"Error: {output}")
-            continue
+    status, output = embed_email_thread(text_block,
+                                        collection_name,
+                                        embed_model,
+                                        metadata,
+                                        separators,
+                                        chunk_size)
+    if not status:
+        return False, output
 
-        text_block = get_thread_text(emails)
-        if not text_block:
-            continue
+    # record only on successful embedding!
+    save_thread_to_file(dump_text_block, text_block, metadata)
 
-        print(f"""[INFO] Embedding thread {thread_id}:
-            Subject           : "{emails[0].subject}"
-            Email Count       : {len(emails)}
-            Attachments Count : {sum(len(e.attachments) for e in emails)}
-            Thread Length     : {len(text_block)}""")
-
-        status, output = embed_thread(emails,
-                                      thread_id,
-                                      text_block,
-                                      collection_name,
-                                      embed_model,
-                                      chunk_size,
-                                      dump_text_block)
-        if not status:
-            print(f"Error: {output}")
-            continue
-
-        try:
-
-            # Mark all emails in this thread as embedded
-            for email in emails:
-                email.is_embedded = True
-
-            session.commit()
-
-        except Exception as e:
-            print(f"[ERROR] Failed to embed thread {thread_id}: {e}")
-
-    session.close()
+    return True, None
 
 
 def get_thread_text(emails):
@@ -159,47 +154,6 @@ def remove_links(text):
 
     url_pattern = r'https?://\S+|www\.\S+|ftp://\S+'
     return re.sub(url_pattern, '', text)
-
-
-def embed_thread(emails, thread_id, text_block, collection_name, embed_model, chunk_size, dump_text_block):
-
-    metadata = {
-        "type"              : "email",
-        "thread_id"         : thread_id,
-        "subject"           : emails[0].subject,
-        "sender"            : emails[0].sender,
-        "email_count"       : len(emails),
-        "attachments_count" : sum(len(e.attachments) for e in emails),
-        "first_email_date"  : str(min(e.date for e in emails if e.date)),
-        "last_email_date"   : str(max(e.date for e in emails if e.date)),
-        "text_block_len"    : len(text_block)
-    }
-
-    separators = [
-        "===== End Email Thread =====",   # End marker for the entire email thread
-        "===== Begin Email Thread =====", # Start marker for the entire email thread
-        "--- End Email ---",              # End of an individual email within the thread
-        "--- Email",                      # Start of an individual email (used for redundancy)
-        "--- Begin Attachment",           # Start of an attachment section
-        "\n\n",                           # Paragraph boundary (typical in email bodies)
-        "\n",                             # Line break (for denser formatting)
-        " ",                              # Word boundary (used when no larger separator found)
-        ""                                # Character-level fallback (last resort for splitting)
-    ]
-
-    status, output = embed_email_thread(text_block,
-                                        collection_name,
-                                        embed_model,
-                                        metadata,
-                                        separators,
-                                        chunk_size)
-    if not status:
-        return False, output
-
-    # record only on successful embedding!
-    save_thread_to_file(dump_text_block, text_block, metadata)
-
-    return True, None
 
 
 def save_thread_to_file(dump_text_block, text_block, metadata):

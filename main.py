@@ -15,7 +15,7 @@ from db.models import Email
 from services.email_loader_gmail import Email_loader_Gmail
 from services.email_loader_mbox import Email_loader_mbox
 from services.email_embedder_remote import load_model, create_collection
-from services.email_embedder_worker import embed_unprocessed_threads
+from services.email_embedder_worker import embed_thread_start
 
 
 def run_pipeline(source, mailbox, embed_model, chunk_size, collection_name, dump_text_block):
@@ -82,10 +82,41 @@ def embedding_worker(collection_name, embed_model, chunk_size, dump_text_block):
 
     while True:
 
-        embed_unprocessed_threads(collection_name,
-                                  embed_model,
-                                  chunk_size,
-                                  dump_text_block)
+        session = SessionLocal()
+
+        # Get thread_ids where at least one email is not embedded
+        thread_ids = session.query(Email.thread_id).filter(Email.is_embedded == False).distinct().all()
+
+        if not thread_ids:
+            print("[INFO] No pending email threads found for embedding.")
+            session.close()
+            continue
+
+        for (thread_id,) in thread_ids:
+
+            emails = session.query(Email).filter(Email.thread_id == thread_id).order_by(Email.date).all()
+            if not emails:
+                continue
+
+            status, output = embed_thread_start(emails, thread_id, collection_name, embed_model, chunk_size, dump_text_block)
+            if not status:
+                print(output)
+                continue
+
+            try:
+
+                # Mark all emails in this thread as embedded
+                for email in emails:
+                    email.is_embedded = True
+
+                session.commit()
+
+            except Exception as e:
+                print(f"[ERROR] Failed to embed thread {thread_id}: {e}")
+                continue
+
+        session.close()
+
         time.sleep(10)
 
 

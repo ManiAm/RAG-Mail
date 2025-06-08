@@ -13,7 +13,6 @@ from email import message_from_bytes
 from email.policy import default
 from docx import Document
 from io import BytesIO
-from bs4 import BeautifulSoup
 from PIL import Image
 
 
@@ -56,7 +55,7 @@ class Email_loader():
                 print(f"Error: extract_text: {e}")
                 pass
 
-        elif effective_mime in ["application/json"]:
+        elif effective_mime == "application/json":
 
             try:
                 json_str = binary_data.decode("utf-8")
@@ -70,8 +69,9 @@ class Email_loader():
 
             try:
                 html_txt = binary_data.decode('utf-8', errors='ignore')
-                soup = BeautifulSoup(html_txt, "html.parser")
-                text_data = soup.get_text(separator="\n", strip=True)
+                status, output = self.html_to_text(html_txt)
+                if status and output:
+                    text_data = output
             except Exception as e:
                 print(f"Error: extract_text: {e}")
                 pass
