@@ -209,7 +209,6 @@ class Email_loader_mbox(Email_loader):
                 pass
 
         if html_text:
-
             status, output = self.html_to_text(html_text)
             if status and output:
                 plain_text = output

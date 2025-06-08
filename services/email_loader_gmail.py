@@ -6,7 +6,6 @@ import pickle
 from datetime import datetime
 from datetime import timezone
 from base64 import urlsafe_b64decode
-from bs4 import BeautifulSoup
 
 from email.utils import parsedate_to_datetime
 from email.utils import getaddresses
@@ -32,11 +31,13 @@ class Email_loader_Gmail(Email_loader):
     def get_gmail_service(self):
 
         creds = None
+        token_file = "token.pickle"
+        credential_file = "credentials.json"
 
-        if os.path.exists('token.pickle'):
+        if os.path.exists(token_file):
 
-            with open('token.pickle', 'rb') as token:
-                creds = pickle.load(token)
+            with open(token_file, 'rb') as tf:
+                creds = pickle.load(tf)
                 print("Expired           :", creds.expired)
                 print("Has refresh token :", bool(creds.refresh_token))
                 print("Valid             :", creds.valid)
@@ -46,13 +47,15 @@ class Email_loader_Gmail(Email_loader):
                     try:
                         creds.refresh(Request())
                         print("Token refreshed successfully.")
+                        # Save updated token
+                        with open(token_file, 'wb') as tfu:
+                            pickle.dump(creds, tfu)
                     except Exception as e:
                         print(f"Failed to refresh token: {e}")
                         creds = None  # fallback to re-auth
 
         if not creds or not creds.valid:
 
-            credential_file = "credentials.json"
             if not os.path.exists(credential_file):
                 print("Gmail credential JSON file cannot be accessed!")
                 sys.exit(1)
@@ -69,8 +72,8 @@ class Email_loader_Gmail(Email_loader):
                 include_granted_scopes='true'
             )
 
-            with open('token.pickle', 'wb') as token:
-                pickle.dump(creds, token)
+            with open(token_file, 'wb') as tf:
+                pickle.dump(creds, tf)
 
         return build('gmail', 'v1', credentials=creds)
 
@@ -270,39 +273,46 @@ class Email_loader_Gmail(Email_loader):
             except Exception:
                 return ""
 
-        text_plain_body = ""
-        text_html_body = ""
+        text_plain = ""
+        text_html = ""
+
+        def recurse_parts(parts):
+
+            nonlocal text_plain, text_html
+
+            for part in parts:
+
+                mime = part.get('mimeType')
+                body_data = part.get('body', {}).get('data')
+
+                if body_data:
+                    decoded = decode(body_data)
+                    if mime == 'text/plain':
+                        text_plain += "\n" + decoded
+                    elif mime == 'text/html':
+                        text_html += "\n" + decoded
+
+                if 'parts' in part:
+                    recurse_parts(part['parts'])
 
         if 'parts' in payload:
-            for part in payload['parts']:
-                mime = part.get('mimeType')
-                data = part.get('body', {}).get('data')
-
-                if mime == 'text/plain' and data:
-                    text_plain_body += decode(data)
-                elif mime == 'text/html' and data:
-                    text_html_body += decode(data)
-                elif 'parts' in part:
-                    nested_body = self.extract_body(part)
-                    if nested_body:
-                        if not text_plain_body:
-                            text_plain_body = nested_body
-
-        elif payload.get('body', {}).get('data'):
+            recurse_parts(payload['parts'])
+        else:
+            # Single-part message
             mime = payload.get('mimeType')
-            data = payload['body']['data']
+            body_data = payload.get('body', {}).get('data')
+            decoded = decode(body_data)
             if mime == 'text/plain':
-                text_plain_body = decode(data)
+                text_plain = decoded
             elif mime == 'text/html':
-                text_html_body = decode(data)
+                text_html = decoded
 
-        if text_plain_body:
-            return text_plain_body
-        elif text_html_body:
-            soup = BeautifulSoup(text_html_body, 'html.parser')
-            return soup.get_text(separator="\n", strip=True)
+        if text_html:
+            status, output = self.html_to_text(text_html)
+            if status and output:
+                text_plain = output
 
-        return ""
+        return text_plain.replace('\x00', '').strip()
 
 
     def extract_attachments(self, message):

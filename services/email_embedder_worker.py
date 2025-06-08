@@ -187,14 +187,14 @@ def embed_thread(emails, thread_id, text_block, collection_name, embed_model, ch
         ""                                # Character-level fallback (last resort for splitting)
     ]
 
-    # status, output = embed_email_thread(text_block,
-    #                                     collection_name,
-    #                                     embed_model,
-    #                                     metadata,
-    #                                     separators,
-    #                                     chunk_size)
-    # if not status:
-    #     return False, output
+    status, output = embed_email_thread(text_block,
+                                        collection_name,
+                                        embed_model,
+                                        metadata,
+                                        separators,
+                                        chunk_size)
+    if not status:
+        return False, output
 
     # record only on successful embedding!
     save_thread_to_file(dump_text_block, text_block, metadata)

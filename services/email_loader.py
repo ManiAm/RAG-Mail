@@ -17,22 +17,6 @@ from bs4 import BeautifulSoup
 from PIL import Image
 
 
-class HTML2TextNoFootnotes(html2text.HTML2Text):
-    def _dump_footnotes(self):
-        return ""  # Suppress [ref]: style footnotes entirely
-
-h = HTML2TextNoFootnotes()
-
-h.ignore_links = True           # Do not include hyperlinks
-h.ignore_images = True          # Skip image tags
-h.body_width = 0                # Do not wrap text
-h.ignore_emphasis = True        # Remove **bold** and _italics_
-h.skip_internal_links = True    # Avoid internal anchors
-h.ignore_tables = True          # Do not include tables
-h.protect_links = True
-
-
-
 class Email_loader():
 
     def get_mime_type(self, mime_type, filename, binary_data):
@@ -200,6 +184,16 @@ class Email_loader():
     def html_to_text(self, html_text):
 
         try:
+
+            h = html2text.HTML2Text()
+
+            h.ignore_links = True           # Do not include hyperlinks
+            h.ignore_images = True          # Skip image tags
+            h.body_width = 0                # Do not wrap text
+            h.ignore_emphasis = True        # Remove **bold** and _italics_
+            h.skip_internal_links = True    # Avoid internal anchors
+            h.ignore_tables = True          # Do not include tables
+            h.protect_links = True
 
             text = h.handle(html_text)
 
