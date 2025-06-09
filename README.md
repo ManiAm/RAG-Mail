@@ -88,6 +88,8 @@ If you're working with your own email data, you can use the provided [plot_threa
 
 Embedding large email threads directly can result in excessive chunking, leading to storage inefficiencies, redundant semantic vectors, and diluted context during retrieval. In these cases, blindly chunking the entire content may not only be computationally expensive but also introduce noise that reduces retrieval quality. To address this, we use a conditional strategy: if a thread's chunk count exceeds a predefined threshold, we apply summarization prior to embedding. Summarization compresses the key intent and topics of the thread into a compact form that fits within a single embedding-friendly chunk.
 
+A second limitation arises from the context window of the LLM. Although LLMs typically support significantly more tokens than embedding models, their context length is still finite. When summarizing large email threads, it is essential to ensure that the constructed summarization prompt does not exceed the LLM model’s maximum context window. If the input exceeds this limit, we apply a hierarchical summarization strategy: the email thread is first re-split into groups of chunks that fit within the LLM’s context size, each group is summarized individually, and then all partial summaries are combined into a final summary.
+
 ### Document Metadata
 
 Each embedded document is accompanied by structured metadata, such as `thread_id`, subject, attachment_count, etc. This metadata allows for advanced filtering, faceted search, and ranking during retrieval. It also aids in building analytics or audit trails. For example, you can use a filter query in Qdrant to retrieve all vector embeddings associated with a specific thread by filtering on the `thread_id` metadata field.

@@ -27,6 +27,38 @@ separators = [
     ""                                # Character-level fallback (last resort for splitting)
 ]
 
+summarization_prompt = f"""
+You are an assistant that summarizes long email threads.
+
+The email thread is structured as follows:
+- The entire thread is wrapped with: `===== Begin Email Thread =====` and `===== End Email Thread =====`
+- Each email starts with `--- Email N ---` and ends with `--- End Email ---`
+- If there are any attachments, they are shown between `--- Begin Attachment: <filename> (<filetype>) ---` and `--- End Attachment ---`
+
+Provide a concise summary of the overall thread, capturing:
+- The main topic or subject of the conversation
+- Any requests for help, questions being asked, or issues raised by the sender(s)
+- Any key decisions or actions mentioned
+- Important dates or numbers if mentioned
+
+Only summarize what's relevant. Do not repeat all emails.
+Highlight help requests clearly (if any) so a human can follow up if needed.
+
+Here is the email thread:
+"""
+
+summarization_combine_prompt = f"""
+You are an assistant that combines multiple partial summaries of an email thread into one cohesive final summary.
+
+Each input summary covers a portion of a long email conversation. Your task is to merge them into a single summary that:
+- Preserves the main topics and themes from all parts
+- Captures all important requests, decisions, and actions mentioned
+- Avoids repetition or unnecessary detail
+- Retains important dates, names, or figures if mentioned
+- Presents the summary in clear, concise, and structured language
+
+Here are the partial summaries:
+"""
 
 def embed_thread_start(emails, thread_id, llm_model, embed_model, collection_name, chunk_size, dump_text_block, max_chunks=3):
 
@@ -201,7 +233,6 @@ def compute_chunk_size(text_block, embed_model, chunk_size):
     #######
 
     status, output = services.rag_talk_remote.split_document(text_block,
-                                                             embed_model,
                                                              chunk_size,
                                                              separators)
     if not status:
@@ -219,7 +250,7 @@ def get_max_characters_embedding(embed_model):
     if not status:
         return False, output
 
-    max_tokens = output
+    max_tokens = int(output)
 
     avg_chars_per_token = 3.5  # in English
     approx_max_characters = max_tokens * avg_chars_per_token
@@ -245,45 +276,45 @@ def get_max_characters_llm(llm_model):
 
 def summarize_thread_text(text_block, llm_model):
 
+    def run_llm_summary(text_block):
+        llm_prompt = f"{summarization_prompt}\n\n{text_block}"
+        return services.rag_talk_remote.llm_chat(llm_prompt, llm_model, session_id="llm_summarize")
+
     status, output = get_max_characters_llm(llm_model)
     if not status:
         return False, f"Error: get_max_characters_llm: {output}"
 
     context_length_characters = int(output)
+    total_characters = len(text_block) + len(summarization_prompt)
 
-    summarization_question = f"""
-You are an assistant that summarizes long email threads.
+    # Entire thread fits within LLM context window
+    if total_characters <= context_length_characters:
+        return run_llm_summary(text_block)
 
-The email thread is structured as follows:
-- The entire thread is wrapped with: `===== Begin Email Thread =====` and `===== End Email Thread =====`
-- Each email starts with `--- Email N ---` and ends with `--- End Email ---`
-- If there are any attachments, they are shown between `--- Begin Attachment: <filename> (<filetype>) ---` and `--- End Attachment ---`
+    print(f"[INFO] Falling back to hierarchical summarization — total {total_characters} chars")
 
-Provide a concise summary of the overall thread, capturing:
-- The main topic or subject of the conversation
-- Any requests for help, questions being asked, or issues raised by the sender(s)
-- Any key decisions or actions mentioned
-- Important dates or numbers if mentioned
-
-Only summarize what's relevant. Do not repeat all emails.
-Highlight help requests clearly (if any) so a human can follow up if needed.
-
-Here is the email thread:
-
-{text_block}
-    """
-
-    if len(summarization_question) > context_length_characters:
-        print(
-            f"[WARNING] Summarization question length ({len(summarization_question)} chars) exceeds "
-            f"the maximum supported context size ({context_length_characters} chars) for LLM '{llm_model}'"
-        )
-
-    status, output = services.rag_talk_remote.llm_chat(summarization_question, llm_model, session_id="llm_summarize")
+    chunk_size = context_length_characters - len(summarization_prompt)
+    status, output = services.rag_talk_remote.split_document(text_block, chunk_size, separators)
     if not status:
-        return False, output
+        return False, f"Error: split_document: {output}"
 
-    return True, output
+    chunks_list = output.get("chunks", [])
+
+    summaries = []
+    for chunk in chunks_list:
+        status, summary = run_llm_summary(chunk.strip())
+        if not status:
+            return False, summary
+        summaries.append(summary)
+
+    # Summarize the combined group summaries
+    combined_summary_text = "\n\n".join(summaries)
+    llm_prompt = f"{summarization_combine_prompt}\n\n{combined_summary_text}"
+    status, final_summary = services.rag_talk_remote.llm_chat(llm_prompt, llm_model, session_id="llm_combine_summary")
+    if not status:
+        return False, final_summary
+
+    return True, final_summary
 
 
 def save_thread_to_file(dump_text_block, text_block, text_block_summarized, metadata):

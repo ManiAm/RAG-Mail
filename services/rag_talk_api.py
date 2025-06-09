@@ -92,13 +92,12 @@ class RAG_TALK_REST_API_Client(REST_API_Client):
         return True, max_tokens
 
 
-    def split_document(self, text, embed_model, chunk_size=1000, separators=None):
+    def split_document(self, text, chunk_size=1000, separators=None):
 
         url = f"{self.baseurl}/api/v1/rag/split-doc"
 
         payload = {
             "text": text,
-            "embed_model": embed_model,
             "chunk_size": chunk_size,
             "separators": separators or ["\n\n", "\n", " ", ""]
         }

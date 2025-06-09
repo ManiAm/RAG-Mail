@@ -106,11 +106,11 @@ def get_max_tokens(embed_model):
     return True, output
 
 
-def split_document(text, embed_model, chunk_size=1000, separators=None):
+def split_document(text, chunk_size=1000, separators=None):
 
     rest_obj = RAG_TALK_REST_API_Client(url=config.rag_talk_url)
 
-    return rest_obj.split_document(text, embed_model, chunk_size, separators)
+    return rest_obj.split_document(text, chunk_size, separators)
 
 #################
 

@@ -99,7 +99,15 @@ def embedding_worker(llm_model, embed_model, collection_name, chunk_size, dump_t
                 if not emails:
                     continue
 
-                status, output = embed_thread_start(emails, thread_id, llm_model, embed_model, collection_name, chunk_size, dump_text_block)
+                status, output = embed_thread_start(
+                    emails,
+                    thread_id,
+                    llm_model,
+                    embed_model,
+                    collection_name,
+                    chunk_size,
+                    dump_text_block)
+
                 if not status:
                     print(output)
                     continue
