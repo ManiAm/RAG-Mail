@@ -14,11 +14,11 @@ from db.models import Email
 
 from services.email_loader_gmail import Email_loader_Gmail
 from services.email_loader_mbox import Email_loader_mbox
-from services.email_embedder_remote import load_model, create_collection
+from services.rag_talk_remote import load_model, create_collection
 from services.email_embedder_worker import embed_thread_start
 
 
-def run_pipeline(source, mailbox, embed_model, chunk_size, collection_name, dump_text_block):
+def run_pipeline(source, mailbox, llm_model, embed_model, chunk_size, collection_name, dump_text_block):
 
     if os.path.exists(dump_text_block):
         os.remove(dump_text_block)
@@ -43,7 +43,7 @@ def run_pipeline(source, mailbox, embed_model, chunk_size, collection_name, dump
         print(f"Error: invalid source {source}")
         sys.exit(1)
 
-    embed_t = threading.Thread(target=embedding_worker, args=(collection_name, embed_model, chunk_size, dump_text_block), daemon=True)
+    embed_t = threading.Thread(target=embedding_worker, args=(llm_model, embed_model, collection_name, chunk_size, dump_text_block), daemon=True)
     embed_t.start()
 
     poll_t.join()
@@ -78,7 +78,7 @@ def email_loader_worker(mailbox):
     unix.load_emails()
 
 
-def embedding_worker(collection_name, embed_model, chunk_size, dump_text_block):
+def embedding_worker(llm_model, embed_model, collection_name, chunk_size, dump_text_block):
 
     while True:
 
@@ -88,32 +88,33 @@ def embedding_worker(collection_name, embed_model, chunk_size, dump_text_block):
         thread_ids = session.query(Email.thread_id).filter(Email.is_embedded == False).distinct().all()
 
         if not thread_ids:
+
             print("[INFO] No pending email threads found for embedding.")
-            session.close()
-            continue
 
-        for (thread_id,) in thread_ids:
+        else:
 
-            emails = session.query(Email).filter(Email.thread_id == thread_id).order_by(Email.date).all()
-            if not emails:
-                continue
+            for (thread_id,) in thread_ids:
 
-            status, output = embed_thread_start(emails, thread_id, collection_name, embed_model, chunk_size, dump_text_block)
-            if not status:
-                print(output)
-                continue
+                emails = session.query(Email).filter(Email.thread_id == thread_id).order_by(Email.date).all()
+                if not emails:
+                    continue
 
-            try:
+                status, output = embed_thread_start(emails, thread_id, llm_model, embed_model, collection_name, chunk_size, dump_text_block)
+                if not status:
+                    print(output)
+                    continue
 
-                # Mark all emails in this thread as embedded
-                for email in emails:
-                    email.is_embedded = True
+                try:
 
-                session.commit()
+                    # Mark all emails in this thread as embedded
+                    for email in emails:
+                        email.is_embedded = True
 
-            except Exception as e:
-                print(f"[ERROR] Failed to embed thread {thread_id}: {e}")
-                continue
+                    session.commit()
+
+                except Exception as e:
+                    print(f"[ERROR] Failed to embed thread {thread_id}: {e}")
+                    continue
 
         session.close()
 
@@ -143,7 +144,7 @@ def parse_arguments():
     parser.add_argument(
         '--llm_model',
         type=str,
-        default='llama3.1:8b',
+        default='llama3:8b',
         help="Name of the LLM model to use."
     )
 
@@ -157,7 +158,6 @@ def parse_arguments():
     parser.add_argument(
         '--chunk_size',
         type=int,
-        default=1800,
         help="Number of characters per chunk when splitting emails."
     )
 
@@ -193,6 +193,7 @@ if __name__ == "__main__":
 
     run_pipeline(source=parser.source,
                  mailbox=parser.mailbox,
+                 llm_model=parser.llm_model,
                  embed_model=parser.embed_model,
                  chunk_size=parser.chunk_size,
                  collection_name=parser.collection_name,

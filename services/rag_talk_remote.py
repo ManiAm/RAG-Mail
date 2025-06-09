@@ -2,6 +2,24 @@
 import config
 from services.rag_talk_api import RAG_TALK_REST_API_Client
 
+#################
+
+def llm_chat(question, llm_model, context="", session_id="default", timeout=5*60):
+
+    rest_obj = RAG_TALK_REST_API_Client(url=config.rag_talk_url)
+
+    status, output = rest_obj.llm_chat(question, llm_model, context, session_id, timeout)
+    if not status:
+        return False, output
+
+    answer = output.get("answer", None)
+
+    if not answer:
+        return False, "Did not get an answer from LLM"
+
+    return True, answer
+
+#################
 
 def load_model(model_list):
 
@@ -23,6 +41,22 @@ def unload_all_models():
 
     return rest_obj.unload_all_models()
 
+#################
+
+def get_max_tokens():
+
+    rest_obj = RAG_TALK_REST_API_Client(url=config.rag_talk_url)
+
+    return rest_obj.get_max_tokens()
+
+
+def split_document(text, embed_model, chunk_size=1000, separators=None):
+
+    rest_obj = RAG_TALK_REST_API_Client(url=config.rag_talk_url)
+
+    return rest_obj.split_document(text, embed_model, chunk_size, separators)
+
+#################
 
 def create_collection(collection_name, embed_model):
 
@@ -30,6 +64,7 @@ def create_collection(collection_name, embed_model):
 
     return rest_obj.create_collection(collection_name, embed_model)
 
+#################
 
 def remove_embed_email_thread(collection_name, thread_id):
 
@@ -43,3 +78,5 @@ def embed_email_thread(text_block, collection_name, embed_model, metadata={}, se
     rest_obj = RAG_TALK_REST_API_Client(url=config.rag_talk_url)
 
     return rest_obj.embed_email_thread(text_block, collection_name, embed_model, metadata, separators, chunk_size, timeout)
+
+#################

@@ -82,9 +82,11 @@ Based on an analysis of my email thread corpus, I observed a wide range of conte
 
 <img src="pics/email_thread_length_distribution.png" alt="segment" width="650">
 
-Embedding large threads directly can result in excessive chunking, leading to storage inefficiencies, redundant semantic vectors, and diluted context during retrieval. In these cases, blindly chunking the entire content may not only be computationally expensive but also introduce noise that reduces retrieval quality. To address this, we can use a conditional strategy: if a thread’s `text_block_len` exceeds a predefined threshold, we apply summarization or content filtering prior to embedding. Summarization compresses the key intent and topics of the thread into a compact form that fits within a single embedding-friendly chunk.
-
 If you're working with your own email data, you can use the provided [plot_thread_length_distribution.py](./plot_thread_length_distribution.py) script to extract `text_block_len` values, visualize their distribution, and inform your own decisions around embedding models and chunk sizes.
+
+### Summarization
+
+Embedding large email threads directly can result in excessive chunking, leading to storage inefficiencies, redundant semantic vectors, and diluted context during retrieval. In these cases, blindly chunking the entire content may not only be computationally expensive but also introduce noise that reduces retrieval quality. To address this, we use a conditional strategy: if a thread's chunk count exceeds a predefined threshold, we apply summarization prior to embedding. Summarization compresses the key intent and topics of the thread into a compact form that fits within a single embedding-friendly chunk.
 
 ### Document Metadata
 

@@ -3,7 +3,7 @@ import re
 import json
 import difflib
 
-from services.email_embedder_remote import remove_embed_email_thread, embed_email_thread
+import services.rag_talk_remote
 
 quoted_reply_patterns = [
     r"On .+?wrote:",                    # Gmail-style replies
@@ -15,11 +15,25 @@ quoted_reply_patterns = [
     r"----+ Original Message ----+",
 ]
 
+separators = [
+    "===== End Email Thread =====",   # End marker for the entire email thread
+    "===== Begin Email Thread =====", # Start marker for the entire email thread
+    "--- End Email ---",              # End of an individual email within the thread
+    "--- Email",                      # Start of an individual email (used for redundancy)
+    "--- Begin Attachment",           # Start of an attachment section
+    "\n\n",                           # Paragraph boundary (typical in email bodies)
+    "\n",                             # Line break (for denser formatting)
+    " ",                              # Word boundary (used when no larger separator found)
+    ""                                # Character-level fallback (last resort for splitting)
+]
 
-def embed_thread_start(emails, thread_id, collection_name, embed_model, chunk_size, dump_text_block):
+max_character_model = {}
+
+
+def embed_thread_start(emails, thread_id, llm_model, embed_model, collection_name, chunk_size, dump_text_block, max_chunks=3):
 
     # Remove old embeddings for this thread
-    status, output = remove_embed_email_thread(collection_name, thread_id)
+    status, output = services.rag_talk_remote.remove_embed_email_thread(collection_name, thread_id)
     if not status:
         return False, f"Error: {output}"
 
@@ -27,47 +41,62 @@ def embed_thread_start(emails, thread_id, collection_name, embed_model, chunk_si
     if not text_block:
         return True, None
 
+    #######
+
+    chunk_size_original = compute_chunk_size(text_block, embed_model, chunk_size)
+    if chunk_size_original is None:
+        return False, "Cannot compute chunk size"
+
+    text_block_summarized = ""
+    should_summarize = chunk_size_original > max_chunks
+
+    if should_summarize:
+
+        status, output = summarize_thread_text(text_block, llm_model)
+        if not status:
+            return False, f"summarization failed: {output}"
+
+        text_block_summarized = output
+
+        if not isinstance(text_block_summarized, str):
+            return False, f"Unexpected format type: {type(text_block_summarized)}"
+
+    text_block_final = text_block_summarized or text_block
+
+    #######
+
     print(f"""[INFO] Embedding thread {thread_id}:
         Subject           : "{emails[0].subject}"
         Email Count       : {len(emails)}
         Attachments Count : {sum(len(e.attachments) for e in emails)}
-        Thread Length     : {len(text_block)}""")
+        Thread Length     : {len(text_block_final)}""")
 
     metadata = {
-        "type"              : "email",
-        "thread_id"         : thread_id,
-        "subject"           : emails[0].subject,
-        "sender"            : emails[0].sender,
-        "email_count"       : len(emails),
-        "attachments_count" : sum(len(e.attachments) for e in emails),
-        "first_email_date"  : str(min(e.date for e in emails if e.date)),
-        "last_email_date"   : str(max(e.date for e in emails if e.date)),
-        "text_block_len"    : len(text_block)
+        "type"                : "email",
+        "thread_id"           : thread_id,
+        "subject"             : emails[0].subject,
+        "sender"              : emails[0].sender,
+        "email_count"         : len(emails),
+        "attachments_count"   : sum(len(e.attachments) for e in emails),
+        "first_email_date"    : str(min(e.date for e in emails if e.date)),
+        "last_email_date"     : str(max(e.date for e in emails if e.date)),
+        "text_block_len"      : len(text_block_final),
+        "chunk_size_original" : chunk_size_original,
+        "is_summarized"       : should_summarize
     }
 
-    separators = [
-        "===== End Email Thread =====",   # End marker for the entire email thread
-        "===== Begin Email Thread =====", # Start marker for the entire email thread
-        "--- End Email ---",              # End of an individual email within the thread
-        "--- Email",                      # Start of an individual email (used for redundancy)
-        "--- Begin Attachment",           # Start of an attachment section
-        "\n\n",                           # Paragraph boundary (typical in email bodies)
-        "\n",                             # Line break (for denser formatting)
-        " ",                              # Word boundary (used when no larger separator found)
-        ""                                # Character-level fallback (last resort for splitting)
-    ]
+    status, output = services.rag_talk_remote.embed_email_thread(text_block_final,
+        collection_name,
+        embed_model,
+        metadata,
+        separators,
+        chunk_size)
 
-    status, output = embed_email_thread(text_block,
-                                        collection_name,
-                                        embed_model,
-                                        metadata,
-                                        separators,
-                                        chunk_size)
     if not status:
         return False, output
 
     # record only on successful embedding!
-    save_thread_to_file(dump_text_block, text_block, metadata)
+    save_thread_to_file(dump_text_block, text_block, text_block_summarized, metadata)
 
     return True, None
 
@@ -156,7 +185,94 @@ def remove_links(text):
     return re.sub(url_pattern, '', text)
 
 
-def save_thread_to_file(dump_text_block, text_block, metadata):
+def compute_chunk_size(text_block, embed_model, chunk_size):
+
+    if not chunk_size:
+
+        status, output = get_max_characters(embed_model)
+        if not status:
+            print(f"Error: get_max_characters: {output}")
+            return None
+
+        if not isinstance(output, int):
+            print(f"unexpected format: {type(output)}")
+            return None
+
+        chunk_size = output
+
+    #######
+
+    status, output = services.rag_talk_remote.split_document(text_block,
+                                                             embed_model,
+                                                             chunk_size,
+                                                             separators)
+    if not status:
+        print(f"Error: split_document: {output}")
+        return None
+
+    chunks_map = output
+
+    return chunks_map.get("count", None)
+
+
+def get_max_characters(embed_model):
+
+    if embed_model in max_character_model:
+        return True, int(max_character_model[embed_model])
+
+    status, output = services.rag_talk_remote.get_max_tokens()
+    if not status:
+        return False, output
+
+    max_tokens_map = output
+
+    if not isinstance(max_tokens_map, dict):
+        return False, f"unexpected format: {type(max_tokens_map)}"
+
+    max_tokens = max_tokens_map.get(embed_model, None)
+    if not max_tokens:
+        return False, f"cannot find max tokens for embedding model {embed_model}"
+
+    avg_chars_per_token = 3.5  # in English
+    approx_max_characters = max_tokens * avg_chars_per_token
+
+    max_character_model[embed_model] = approx_max_characters
+
+    return True, int(approx_max_characters)
+
+
+def summarize_thread_text(text_block, llm_model):
+
+    summarization_question = f"""
+You are an assistant that summarizes long email threads.
+
+The email thread is structured as follows:
+- The entire thread is wrapped with: `===== Begin Email Thread =====` and `===== End Email Thread =====`
+- Each email starts with `--- Email N ---` and ends with `--- End Email ---`
+- If there are any attachments, they are shown between `--- Begin Attachment: <filename> (<filetype>) ---` and `--- End Attachment ---`
+
+Provide a concise summary of the overall thread, capturing:
+- The main topic or subject of the conversation
+- Any requests for help, questions being asked, or issues raised by the sender(s)
+- Any key decisions or actions mentioned
+- Important dates or numbers if mentioned
+
+Only summarize what's relevant. Do not repeat all emails.
+Highlight help requests clearly (if any) so a human can follow up if needed.
+
+Here is the email thread:
+
+{text_block}
+    """
+
+    status, output = services.rag_talk_remote.llm_chat(summarization_question, llm_model, session_id="llm_summarize")
+    if not status:
+        return False, output
+
+    return True, output
+
+
+def save_thread_to_file(dump_text_block, text_block, text_block_summarized, metadata):
 
     header = (
         "============================================\n"
@@ -170,10 +286,20 @@ def save_thread_to_file(dump_text_block, text_block, metadata):
         f.write("METADATA:\n")
         json.dump(metadata, f, indent=4)
 
-        indented_text = "\n".join(
+        indented = "\n".join(
             (" " * 9 + line if line.strip() else "") for line in text_block.strip().splitlines()
         )
 
         f.write("\n\n")
-        f.write(indented_text)
+        f.write(indented)
         f.write("\n\n")
+
+        if text_block_summarized:
+
+            indented = "\n".join(
+                (" " * 9 + line if line.strip() else "") for line in text_block_summarized.strip().splitlines()
+            )
+
+            f.write("Text Block Summarized:\n\n")
+            f.write(indented)
+            f.write("\n\n")

@@ -16,6 +16,20 @@ class RAG_TALK_REST_API_Client(REST_API_Client):
         super().__init__(url, api_ver, base, user)
 
 
+    def llm_chat(self, question, llm_model, context="", session_id="default", timeout=1*60):
+
+        url = f"{self.baseurl}/api/v1/llm/chat"
+
+        payload = {
+            "question": question,
+            "llm_model": llm_model,
+            "context": context,
+            "session_id": session_id
+        }
+
+        return self.request("POST", url, json=payload, timeout=timeout)
+
+
     def load_model(self, model_list, timeout=5*60):
 
         url = f"{self.baseurl}/api/v1/rag/load-model"
@@ -24,7 +38,7 @@ class RAG_TALK_REST_API_Client(REST_API_Client):
             "models": model_list
         }
 
-        return self.request("POST", url, params=json)
+        return self.request("POST", url, params=json, timeout=timeout)
 
 
     def unload_model(self, model_name):
@@ -39,6 +53,27 @@ class RAG_TALK_REST_API_Client(REST_API_Client):
         url = f"{self.baseurl}/api/v1/rag/unload-all-models"
 
         return self.request("DELETE", url)
+
+
+    def get_max_tokens(self):
+
+        url = f"{self.baseurl}/api/v1/rag/max-tokens"
+
+        return self.request("GET", url)
+
+
+    def split_document(self, text, embed_model, chunk_size=1000, separators=None):
+
+        url = f"{self.baseurl}/api/v1/rag/split-doc"
+
+        payload = {
+            "text": text,
+            "embed_model": embed_model,
+            "chunk_size": chunk_size,
+            "separators": separators or ["\n\n", "\n", " ", ""]
+        }
+
+        return self.request("POST", url, json=payload)
 
 
     def create_collection(self, collection_name, embed_model):
