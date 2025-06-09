@@ -27,8 +27,6 @@ separators = [
     ""                                # Character-level fallback (last resort for splitting)
 ]
 
-max_character_model = {}
-
 
 def embed_thread_start(emails, thread_id, llm_model, embed_model, collection_name, chunk_size, dump_text_block, max_chunks=3):
 
@@ -54,7 +52,7 @@ def embed_thread_start(emails, thread_id, llm_model, embed_model, collection_nam
 
         status, output = summarize_thread_text(text_block, llm_model)
         if not status:
-            return False, f"summarization failed: {output}"
+            return False, f"Summarization failed: {output}"
 
         text_block_summarized = output
 
@@ -189,9 +187,9 @@ def compute_chunk_size(text_block, embed_model, chunk_size):
 
     if not chunk_size:
 
-        status, output = get_max_characters(embed_model)
+        status, output = get_max_characters_embedding(embed_model)
         if not status:
-            print(f"Error: get_max_characters: {output}")
+            print(f"Error: get_max_characters_embedding: {output}")
             return None
 
         if not isinstance(output, int):
@@ -215,33 +213,43 @@ def compute_chunk_size(text_block, embed_model, chunk_size):
     return chunks_map.get("count", None)
 
 
-def get_max_characters(embed_model):
+def get_max_characters_embedding(embed_model):
 
-    if embed_model in max_character_model:
-        return True, int(max_character_model[embed_model])
-
-    status, output = services.rag_talk_remote.get_max_tokens()
+    status, output = services.rag_talk_remote.get_max_tokens(embed_model)
     if not status:
         return False, output
 
-    max_tokens_map = output
-
-    if not isinstance(max_tokens_map, dict):
-        return False, f"unexpected format: {type(max_tokens_map)}"
-
-    max_tokens = max_tokens_map.get(embed_model, None)
-    if not max_tokens:
-        return False, f"cannot find max tokens for embedding model {embed_model}"
+    max_tokens = output
 
     avg_chars_per_token = 3.5  # in English
     approx_max_characters = max_tokens * avg_chars_per_token
 
-    max_character_model[embed_model] = approx_max_characters
+    return True, int(approx_max_characters)
+
+
+def get_max_characters_llm(llm_model):
+
+    status, output = services.rag_talk_remote.get_llm_info(llm_model)
+    if not status:
+        return False, f"cannot get LLM model info: {output}"
+
+    context_len = output.get("llama.context_length", None)
+    if not context_len:
+        return False, f"cannot get context length of LLM model {llm_model}"
+
+    avg_chars_per_token = 3.5  # in English
+    approx_max_characters = int(context_len) * avg_chars_per_token
 
     return True, int(approx_max_characters)
 
 
 def summarize_thread_text(text_block, llm_model):
+
+    status, output = get_max_characters_llm(llm_model)
+    if not status:
+        return False, f"Error: get_max_characters_llm: {output}"
+
+    context_length_characters = int(output)
 
     summarization_question = f"""
 You are an assistant that summarizes long email threads.
@@ -264,6 +272,12 @@ Here is the email thread:
 
 {text_block}
     """
+
+    if len(summarization_question) > context_length_characters:
+        print(
+            f"[WARNING] Summarization question length ({len(summarization_question)} chars) exceeds "
+            f"the maximum supported context size ({context_length_characters} chars) for LLM '{llm_model}'"
+        )
 
     status, output = services.rag_talk_remote.llm_chat(summarization_question, llm_model, session_id="llm_summarize")
     if not status:

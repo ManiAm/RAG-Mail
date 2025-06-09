@@ -16,6 +16,28 @@ class RAG_TALK_REST_API_Client(REST_API_Client):
         super().__init__(url, api_ver, base, user)
 
 
+    def get_llm_details(self, model_name):
+
+        url = f"{self.baseurl}/api/v1/llm/model-details"
+
+        params = {
+            "model_name": model_name
+        }
+
+        return self.request("GET", url, params=params, timeout=10)
+
+
+    def get_llm_info(self, model_name):
+
+        url = f"{self.baseurl}/api/v1/llm/model-info"
+
+        params = {
+            "model_name": model_name
+        }
+
+        return self.request("GET", url, params=params, timeout=10)
+
+
     def llm_chat(self, question, llm_model, context="", session_id="default", timeout=1*60):
 
         url = f"{self.baseurl}/api/v1/llm/chat"
@@ -55,11 +77,19 @@ class RAG_TALK_REST_API_Client(REST_API_Client):
         return self.request("DELETE", url)
 
 
-    def get_max_tokens(self):
+    def get_max_tokens(self, embed_model):
 
         url = f"{self.baseurl}/api/v1/rag/max-tokens"
 
-        return self.request("GET", url)
+        status, output = self.request("GET", url)
+        if not status:
+            return False, output
+
+        max_tokens = output.get(embed_model, None)
+        if not max_tokens:
+            return False, f"Cannot find max tokens of embedding model {embed_model}"
+
+        return True, max_tokens
 
 
     def split_document(self, text, embed_model, chunk_size=1000, separators=None):
