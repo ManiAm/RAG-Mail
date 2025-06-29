@@ -1,7 +1,7 @@
 
 # RAG-Mail
 
-RAG-Mail is a semantic search system built on top of the [RAG-Talk](https://github.com/ManiAm/RAG-Talk) project. It specializes in retrieving, embedding, and querying email threads, leveraging vector-based retrieval augmented generation (RAG) techniques. It is designed to preserve contextual flow across email conversations, enabling more accurate understanding, summarization, and intelligent question answering over email-based content. RAG-Mail supports ingesting emails from:
+RAG-Mail is a semantic search system built on top of the [RAG-Search](https://github.com/ManiAm/RAG-Search) project. It specializes in retrieving, embedding, and querying email threads, leveraging vector-based retrieval augmented generation (RAG) techniques. It is designed to preserve contextual flow across email conversations, enabling more accurate understanding, summarization, and intelligent question answering over email-based content. RAG-Mail supports ingesting emails from:
 
 - Gmail API (with OAuth2-based read-only access)
 - Unix MBOX files (standard format for local mail storage)
@@ -50,7 +50,7 @@ RAG-Mail is designed with two independent daemon threads, each responsible for a
 
 - **Daemon Thread 2**: Embedding Pending Threads
 
-    This thread queries the database for emails that have not yet been embedded yet. It groups them based on email `thread_id` and constructs a full document representing the chronological flow of all emails in the thread, including attachment content. It then sends the combined document to the RAG-Talk service for chunking and embedding (more on this later). It finally updates the DB to mark all emails of the thread as embedded.
+    This thread queries the database for emails that have not yet been embedded yet. It groups them based on email `thread_id` and constructs a full document representing the chronological flow of all emails in the thread, including attachment content. It then sends the combined document to the RAG-Search service for chunking and embedding (more on this later). It finally updates the DB to mark all emails of the thread as embedded.
 
 ### Chunking
 
@@ -60,7 +60,7 @@ However, because email threads often include structured markers, quoted replies,
 
 ### Embedding
 
-We use the `bge-large-en-v1.5` embedding model because it provides high-quality semantic representations while supporting a context window of up to 512 tokens. To stay within this limit and avoid truncation, the combined thread content (including attachments) is split using a chunk size of `1,800` characters - an approximate upper bound for 512 tokens in typical English text. This strategy ensures each chunk maintains coherent meaning while remaining compatible with the model’s constraints. Each chunk is then embedded and stored in the Qdrant vector database through a backend API exposed by the RAG-Talk system.
+We use the `bge-large-en-v1.5` embedding model because it provides high-quality semantic representations while supporting a context window of up to 512 tokens. To stay within this limit and avoid truncation, the combined thread content (including attachments) is split using a chunk size of `1,800` characters - an approximate upper bound for 512 tokens in typical English text. This strategy ensures each chunk maintains coherent meaning while remaining compatible with the model’s constraints. Each chunk is then embedded and stored in the Qdrant vector database through a backend API exposed by the RAG-Search system.
 
 | Model Name           | Model Type | Vector Size | Max Tokens | Max Characters |
 |----------------------|------------|-------------|------------|----------------|
@@ -118,7 +118,7 @@ Start the PostgreSQL Docker container:
 
     docker compose up -d
 
-Update [config.py](config.py) to reflect URL for the running RAG-Talk.
+Update [config.py](config.py) to reflect URL for the running RAG-Search.
 
 If you're processing emails from a local `.mbox` file, use the following command:
 
@@ -181,7 +181,7 @@ Go to "OAuth Consent Screen" again.
 
 ## Sample Interaction
 
-I run RAG-Mail on my personal Gmail account, processing the latest 1,000 emails. Through the RAG-Talk web interface, I can interact with the indexed content and ask context-aware questions across my latest email history.
+I run RAG-Mail on my personal Gmail account, processing the latest 1,000 emails. Through the RAG-Search web interface, I can interact with the indexed content and ask context-aware questions across my latest email history.
 
 <img src="pics/rag-mail-example1.jpg" alt="segment" width="550">
 

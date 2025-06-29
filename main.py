@@ -14,7 +14,7 @@ from db.models import Email
 
 from services.email_loader_gmail import Email_loader_Gmail
 from services.email_loader_mbox import Email_loader_mbox
-from services.rag_talk_remote import load_model, create_collection
+from services.rag_search_remote import load_model, create_collection
 from services.email_embedder_worker import embed_thread_start
 
 
