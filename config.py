@@ -1,3 +1,3 @@
 # config.py
 
-rag_talk_url = "http://localhost:8000"
+rag_search_url = "http://localhost:8000"

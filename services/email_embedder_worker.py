@@ -3,7 +3,7 @@ import re
 import json
 import difflib
 
-import services.rag_talk_remote
+import services.rag_search_remote
 
 quoted_reply_patterns = [
     r"On .+?wrote:",                    # Gmail-style replies
@@ -63,7 +63,7 @@ Here are the partial summaries:
 def embed_thread_start(emails, thread_id, llm_model, embed_model, collection_name, chunk_size, dump_text_block, max_chunks=3):
 
     # Remove old embeddings for this thread
-    status, output = services.rag_talk_remote.remove_embed_email_thread(collection_name, thread_id)
+    status, output = services.rag_search_remote.remove_embed_email_thread(collection_name, thread_id)
     if not status:
         return False, f"Error: {output}"
 
@@ -115,7 +115,7 @@ def embed_thread_start(emails, thread_id, llm_model, embed_model, collection_nam
         "is_summarized"       : should_summarize
     }
 
-    status, output = services.rag_talk_remote.embed_email_thread(text_block_final,
+    status, output = services.rag_search_remote.embed_email_thread(text_block_final,
         collection_name,
         embed_model,
         metadata,
@@ -232,7 +232,7 @@ def compute_chunk_size(text_block, embed_model, chunk_size):
 
     #######
 
-    status, output = services.rag_talk_remote.split_document(text_block,
+    status, output = services.rag_search_remote.split_document(text_block,
                                                              chunk_size,
                                                              separators)
     if not status:
@@ -246,7 +246,7 @@ def compute_chunk_size(text_block, embed_model, chunk_size):
 
 def get_max_characters_embedding(embed_model):
 
-    status, output = services.rag_talk_remote.get_max_tokens(embed_model)
+    status, output = services.rag_search_remote.get_max_tokens(embed_model)
     if not status:
         return False, output
 
@@ -260,7 +260,7 @@ def get_max_characters_embedding(embed_model):
 
 def get_max_characters_llm(llm_model):
 
-    status, output = services.rag_talk_remote.get_llm_info(llm_model)
+    status, output = services.rag_search_remote.get_llm_info(llm_model)
     if not status:
         return False, f"cannot get LLM model info: {output}"
 
@@ -278,7 +278,7 @@ def summarize_thread_text(text_block, llm_model):
 
     def run_llm_summary(text_block):
         llm_prompt = f"{summarization_prompt}\n\n{text_block}"
-        return services.rag_talk_remote.llm_chat(llm_prompt, llm_model, session_id="llm_summarize")
+        return services.rag_search_remote.llm_chat(llm_prompt, llm_model, session_id="llm_summarize")
 
     status, output = get_max_characters_llm(llm_model)
     if not status:
@@ -294,7 +294,7 @@ def summarize_thread_text(text_block, llm_model):
     print(f"[INFO] Falling back to hierarchical summarization — total {total_characters} chars")
 
     chunk_size = context_length_characters - len(summarization_prompt)
-    status, output = services.rag_talk_remote.split_document(text_block, chunk_size, separators)
+    status, output = services.rag_search_remote.split_document(text_block, chunk_size, separators)
     if not status:
         return False, f"Error: split_document: {output}"
 
@@ -310,7 +310,7 @@ def summarize_thread_text(text_block, llm_model):
     # Summarize the combined group summaries
     combined_summary_text = "\n\n".join(summaries)
     llm_prompt = f"{summarization_combine_prompt}\n\n{combined_summary_text}"
-    status, final_summary = services.rag_talk_remote.llm_chat(llm_prompt, llm_model, session_id="llm_combine_summary")
+    status, final_summary = services.rag_search_remote.llm_chat(llm_prompt, llm_model, session_id="llm_combine_summary")
     if not status:
         return False, final_summary
 

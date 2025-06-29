@@ -5,7 +5,7 @@ import json
 from services.rest_client import REST_API_Client
 
 
-class RAG_TALK_REST_API_Client(REST_API_Client):
+class RAG_SEARCH_REST_API_Client(REST_API_Client):
 
     def __init__(self,
                  url,
