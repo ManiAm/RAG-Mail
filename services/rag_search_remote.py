@@ -4,27 +4,6 @@ from services.rag_search_api import RAG_SEARCH_REST_API_Client
 
 #################
 
-llm_details_map = {}
-
-def get_llm_details(model_name):
-
-    global llm_details_map
-
-    if model_name in llm_details_map:
-        return True, llm_details_map[model_name]
-
-    rest_obj = RAG_SEARCH_REST_API_Client(url=config.rag_search_url)
-
-    status, output = rest_obj.get_llm_details(model_name)
-    if not status:
-        return False, output
-
-    if output:
-        llm_details_map[model_name] = output
-
-    return True, output
-
-
 llm_info_map = {}
 
 def get_llm_info(model_name):

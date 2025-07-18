@@ -16,17 +16,6 @@ class RAG_SEARCH_REST_API_Client(REST_API_Client):
         super().__init__(url, api_ver, base, user)
 
 
-    def get_llm_details(self, model_name):
-
-        url = f"{self.baseurl}/api/v1/llm/model-details"
-
-        params = {
-            "model_name": model_name
-        }
-
-        return self.request("GET", url, params=params, timeout=10)
-
-
     def get_llm_info(self, model_name):
 
         url = f"{self.baseurl}/api/v1/llm/model-info"

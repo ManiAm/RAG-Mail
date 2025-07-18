@@ -152,7 +152,7 @@ def parse_arguments():
     parser.add_argument(
         '--llm_model',
         type=str,
-        default='llama3:8b',
+        default='ollama/llama3.1:8b',
         help="Name of the LLM model to use."
     )
 
